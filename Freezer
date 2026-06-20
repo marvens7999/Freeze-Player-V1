@@ -1,0 +1,269 @@
+--[ Ghost Recon Tactical Hub v3 | Rapid Auto-Sweep Edition ]--
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Theme Configuration
+local THEME = {
+    Background = Color3.fromRGB(10, 10, 12),
+    NeonCyan = Color3.fromRGB(0, 255, 255),
+    ActiveYellow = Color3.fromRGB(255, 200, 0),
+    WarningRed = Color3.fromRGB(255, 50, 50),
+    GlassTransparency = 0.4
+}
+
+-- Garbage Collection Reference
+local SnapshotFolder_Name = "Tactical_Snapshots_Local"
+local activeFolder = Camera:FindFirstChild(SnapshotFolder_Name)
+if activeFolder then activeFolder:Destroy() end
+
+activeFolder = Instance.new("Folder")
+activeFolder.Name = SnapshotFolder_Name
+activeFolder.Parent = Camera
+
+--[ UI Construction ]--
+local ReconGui = Instance.new("ScreenGui")
+ReconGui.Name = "GhostReconHub"
+ReconGui.ResetOnSpawn = false
+local success = pcall(function() ReconGui.Parent = CoreGui end)
+if not success then ReconGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 250, 0, 150)
+MainFrame.Position = UDim2.new(0.5, -125, 0.1, 0)
+MainFrame.BackgroundColor3 = THEME.Background
+MainFrame.BackgroundTransparency = THEME.GlassTransparency
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ReconGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = THEME.NeonCyan
+UIStroke.Thickness = 1
+UIStroke.Transparency = 0.2
+UIStroke.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.BackgroundTransparency = 1
+Title.Text = "[ GHOSTS CACHED: 0 ]"
+Title.TextColor3 = THEME.NeonCyan
+Title.Font = Enum.Font.Code
+Title.TextSize = 14
+Title.Parent = MainFrame
+
+local AutoSweepButton = Instance.new("TextButton")
+AutoSweepButton.Size = UDim2.new(0.8, 0, 0, 30)
+AutoSweepButton.Position = UDim2.new(0.1, 0, 0.25, 0)
+AutoSweepButton.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+AutoSweepButton.Text = "RAPID AUTO-SWEEP"
+AutoSweepButton.TextColor3 = THEME.NeonCyan
+AutoSweepButton.Font = Enum.Font.Code
+AutoSweepButton.TextSize = 12
+AutoSweepButton.Parent = MainFrame
+
+local SweepButton = Instance.new("TextButton")
+SweepButton.Size = UDim2.new(0.8, 0, 0, 30)
+SweepButton.Position = UDim2.new(0.1, 0, 0.5, 0)
+SweepButton.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+SweepButton.Text = "MANUAL RADAR: OFF"
+SweepButton.TextColor3 = THEME.NeonCyan
+SweepButton.Font = Enum.Font.Code
+SweepButton.TextSize = 12
+SweepButton.Parent = MainFrame
+
+local ClearButton = Instance.new("TextButton")
+ClearButton.Size = UDim2.new(0.8, 0, 0, 30)
+ClearButton.Position = UDim2.new(0.1, 0, 0.75, 0)
+ClearButton.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+ClearButton.Text = "PURGE CACHE"
+ClearButton.TextColor3 = THEME.WarningRed
+ClearButton.Font = Enum.Font.Code
+ClearButton.TextSize = 12
+ClearButton.Parent = MainFrame
+
+--[ Mobile Touch Dragging Logic ]--
+local dragging, dragInput, dragStart, startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then update(input) end
+end)
+
+--[ Core Recon Logic ]--
+local isSweeping = false
+local ghostCount = 0
+
+local function createNameTag(character, playerName)
+    local head = character:FindFirstChild("Head")
+    if not head then return end
+
+    local bg = Instance.new("BillboardGui")
+    bg.Name = "ReconTag"
+    bg.Adornee = head
+    bg.Size = UDim2.new(0, 100, 0, 30)
+    bg.StudsOffset = Vector3.new(0, 2, 0)
+    bg.AlwaysOnTop = true
+
+    local txt = Instance.new("TextLabel")
+    txt.Size = UDim2.new(1, 0, 1, 0)
+    txt.BackgroundTransparency = 1
+    txt.Text = "> " .. playerName .. " <"
+    txt.TextColor3 = THEME.NeonCyan
+    txt.TextStrokeTransparency = 0
+    txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    txt.Font = Enum.Font.Code
+    txt.TextSize = 10
+    txt.Parent = bg
+
+    bg.Parent = character
+end
+
+local function scanForGhosts()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Head") then
+                
+                local ghostName = player.Name .. "_Ghost"
+                
+                if not activeFolder:FindFirstChild(ghostName) then
+                    player.Character.Archivable = true 
+                    local clone = player.Character:Clone()
+                    
+                    if clone then
+                        clone.Name = ghostName
+                        
+                        for _, desc in ipairs(clone:GetDescendants()) do
+                            if desc:IsA("Script") or desc:IsA("LocalScript") then
+                                desc.Enabled = false
+                            elseif desc:IsA("BasePart") then
+                                desc.Anchored = true
+                                desc.CanCollide = false
+                            end
+                        end
+                        
+                        local highlight = Instance.new("Highlight")
+                        highlight.FillColor = THEME.NeonCyan
+                        highlight.FillTransparency = 0.6
+                        highlight.OutlineColor = THEME.NeonCyan
+                        highlight.OutlineTransparency = 0
+                        highlight.Parent = clone
+                        
+                        createNameTag(clone, player.Name)
+                        clone.Parent = activeFolder
+                        
+                        ghostCount = ghostCount + 1
+                        Title.Text = "[ GHOSTS CACHED: " .. tostring(ghostCount) .. " ]"
+                    end
+                end
+            end
+        end
+    end
+end
+
+--[ Rapid Grid Sweep Logic ]--
+local function executeRapidSweep()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then return end
+
+    -- UI Lock
+    AutoSweepButton.Text = "SYSTEM OVERRIDE..."
+    AutoSweepButton.TextColor3 = THEME.ActiveYellow
+    
+    local originalCFrame = hrp.CFrame
+    local originalAnchored = hrp.Anchored
+    
+    hrp.Anchored = true -- Lock physics so you don't fall
+
+    -- Define 1500 stud offset grid
+    local jumpDist = 1500
+    local startPos = originalCFrame.Position
+    local sweepNodes = {
+        Vector3.new(jumpDist, 0, 0),
+        Vector3.new(-jumpDist, 0, 0),
+        Vector3.new(0, 0, jumpDist),
+        Vector3.new(0, 0, -jumpDist),
+        Vector3.new(jumpDist, 0, jumpDist),
+        Vector3.new(-jumpDist, 0, -jumpDist)
+    }
+
+    -- Execute Teleports
+    for _, offset in ipairs(sweepNodes) do
+        -- Jump to node, keeping vertical height same
+        hrp.CFrame = CFrame.new(startPos + offset)
+        
+        -- Allow server to stream map chunk
+        task.wait(0.3) 
+        
+        -- Force capture 
+        scanForGhosts()
+    end
+
+    -- Return to start
+    hrp.CFrame = originalCFrame
+    hrp.Anchored = originalAnchored
+
+    -- UI Unlock
+    AutoSweepButton.Text = "RAPID AUTO-SWEEP"
+    AutoSweepButton.TextColor3 = THEME.NeonCyan
+end
+
+--[ Button Connections ]--
+AutoSweepButton.MouseButton1Click:Connect(function()
+    task.spawn(executeRapidSweep)
+end)
+
+SweepButton.MouseButton1Click:Connect(function()
+    isSweeping = not isSweeping
+    
+    if isSweeping then
+        SweepButton.Text = "MANUAL RADAR: ON"
+        SweepButton.TextColor3 = THEME.ActiveYellow
+        
+        task.spawn(function()
+            while isSweeping do
+                scanForGhosts()
+                task.wait(0.5) 
+            end
+        end)
+    else
+        SweepButton.Text = "MANUAL RADAR: OFF"
+        SweepButton.TextColor3 = THEME.NeonCyan
+    end
+end)
+
+ClearButton.MouseButton1Click:Connect(function()
+    activeFolder:ClearAllChildren()
+    ghostCount = 0
+    Title.Text = "[ GHOSTS CACHED: 0 ]"
+end)
